@@ -1,130 +1,45 @@
-# LumiMeds take-home: run the pharmacy desk for a week
+# Pharmacy Desk
 
-> **Everything in this repo is made up.** The pharmacies, people, email addresses, orders and emails
-> are fictional. They were invented for this exercise and aren't LumiMeds' real systems or data.
-> Any resemblance to a real business or person is coincidence.
+A TypeScript webhook service for the LumiMeds take-home. It reads pharmacy and Ops emails with Claude, checks the proposed changes, then sends orders to an eligible pharmacy or to `MANUAL`. Sam's review list is written to `out/review-queue.jsonl`.
 
-**Visual guide:** [pharmacy-desk.buxmann.dev](https://pharmacy-desk.buxmann.dev) shows how the exercise
-runs. This README has the details.
+This is a timed rebuild of an exercise I had worked on before. It uses the [original exercise](https://github.com/Lumimeds/take-home-pharmacy-desk/blob/9165972991c6d2a67df001f363c8028256c2ca44/README.md) and the unchanged [simulator and fictional data](sim/README.md).
 
-|  |  |
-|---|---|
-| ⏱️ **Two hours, then 15 minutes** | Two hours to build, then up to 15 minutes to write your README. Both are hard stops. How you split the building time is up to you. |
-| 🧰 **Any TypeScript stack** | Use whatever you're comfortable with, set it up yourself, and tell us why you chose it. |
-| 🤖 **AI welcome** | Use it as much as you like. You're responsible for what ships. |
-| 🛟 **Safe first** | An order sent to a pharmacy that can't fill it outweighs everything else. |
+## Run it
 
-## The story
-
-LumiMeds is a telehealth company. When a doctor approves a patient's treatment, the order goes to
-one of our partner pharmacies, which makes the medication and ships it to the patient.
-
-Every pharmacy is different. Each one ships to some states and not others, stocks some doses and
-not others, takes a certain number of days to ship, charges us its own price, and can only take so
-many orders a day.
-
-Those facts change all the time, and the changes arrive by email, from the pharmacies and from our
-own ops team. Today, Sam on our operations team reads every email, keeps track of it all by hand,
-and decides where each order goes. One mistake sends medication to a pharmacy that can't legally or
-physically fill it.
-
-**Your job: build the system that takes Sam's place.**
-
-## 1 · How it runs
-
-A simulator replays a week at LumiMeds against your app. Emails and new orders arrive as webhooks
-throughout the day, in time order. Your app reads the emails and sends each order to a pharmacy
-through our pharmacy API. What goes on inside your app is up to you.
-
-The exact contract is in **[`sim/README.md`](sim/README.md)**. Read it before you start.
-
-## 2 · One event at a time
-
-The simulator sends events one at a time, in time order: the next one goes out when your app replies,
-so a whole week replays in a minute or two. Like real webhooks, an event can be delivered more than
-once. Use the time on each event as "now", never the computer's clock.
-
-## 3 · Business goals, in priority order
-
-Goals, not an algorithm. How you meet them is up to you.
-
-1. **Safe.** Never send an order to a pharmacy that can't fill it: it can't ship to the patient's
-   state, doesn't have that exact dose, is closed, or has no capacity left today.
-2. **Follow LumiMeds ops instructions.** Our ops team's addresses are in `config.lumimedsOps`.
-3. **Fastest delivery** for the patient.
-4. **Then cheapest** for us.
-5. **`MANUAL` only when no pharmacy can safely take the order.** A person will route it.
-
-When goals conflict, decide what's right and explain it in your README.
-
-**About the emails:** pharmacies can tell us about themselves, but only LumiMeds ops decides where
-orders go. A change applies from when it says it does, until when it says it does. If you're not
-sure about an email, put it on a list for Sam with the reason, and keep every order safe in the meantime.
-
-## 4 · What to build
-
-There's more here than fits in two hours, on purpose. We'd rather see a core that's right in every
-case than many features done halfway.
-
-### The core: what has to be true
-
-- **It runs the whole week:** every event is handled, and every order is sent to a pharmacy or to `MANUAL`.
-- **An LLM reads the emails.** How you use it is up to you.
-- **No email that's wrong or not allowed changes where orders go.** Anything unclear goes on Sam's list.
-- **Every order follows the goals**, with what's true at the moment it arrives.
-- **You can show it works**, the way you'd ship it at work.
-
-When the core works, **commit with the message `core done`**.
-
-### Bonuses (if there's time: pick, don't spread)
-
-| | Bonus | Done means |
-|---|---|---|
-| 🟢 | **Cheaper and better** | Label a handful of emails, measure how well your app reads them, and compare models (including a cheaper one) and prompts on accuracy, cost and speed. End with a recommendation. |
-| 🟢 | **Draft replies** | For everything on Sam's list, draft a reply to the sender for Sam to review and send. |
-| 🟡 | **Sam's live desk** | A page that updates as the week replays: each pharmacy, how many orders it's had today, and Sam's list. Sam can approve a held change, and it applies from that moment. |
-| 🟡 | **Explain any decision** | Answer, after the fact: "Why did ORD-2011 go where it went?" and "What did we believe about Velmora on Tuesday at 10:00?" |
-| 🔴 | **Ask the desk** | Sam asks in plain English, like "Who can take a NY tirzepatide 7.5mg order right now?". An LLM answers from your app's actual state, says when it doesn't know, and never changes anything itself. |
-| 🔴 | **Survive a restart** | Stop your app in the middle of the week and start it again. The week still completes, with nothing lost and nothing done twice. |
-
-A bonus only counts if the core works. One done properly beats three half-done.
-
-## 5 · Get started
+Use Node.js 18.20 or newer and an Anthropic API key from your own account.
 
 ```bash
-git clone https://github.com/Lumimeds/take-home-pharmacy-desk && cd take-home-pharmacy-desk
-# set up your TypeScript app with a POST endpoint, and start it on :3000
-node sim/sim.mjs --target http://localhost:3000/webhooks --ping    # three events, to check your wiring
-node sim/sim.mjs --target http://localhost:3000/webhooks           # the whole week
+npm install
+cp .env.example .env
+# Set ANTHROPIC_API_KEY in .env
+npm start
 ```
 
-The simulator needs Node 18 or newer and nothing else. **API key:** use your own, for any LLM
-provider you like. Put it in `.env` and never commit it. A week is only about ten emails, so it costs very little.
+In a second terminal:
 
-## 6 · How we evaluate
+```bash
+node sim/sim.mjs --target http://localhost:3000/webhooks
+```
 
-- **We replay a week you haven't seen:** the same kinds of emails and orders, different details,
-  three times, because AI answers vary.
-- **Safety first.** One unsafe order outweighs everything else.
-- **Then quality:** following ops instructions, using `MANUAL` only when needed, fast and cheap delivery.
-- **Your judgment:** what you chose to do and not do, and why.
+The default model is Claude Sonnet 4.6. Set `PHARMACY_LLM_MODEL` to use another model that supports Anthropic structured outputs. Keep the key in your environment or local `.env`. The simulator writes `out/run-log.jsonl` and `out/deliveries.jsonl`. Restart the app before replaying an identical fixture because an identical start can also be a webhook redelivery.
 
-**Quality over quantity.** Stop building when the two hours are up, even mid-feature. Then take up to
-15 minutes for your README, and tell us where you stopped.
+## How it works
 
-## What to send back
+I chose TypeScript and Node's built-in HTTP server because the simulator needs one endpoint and delivers events one at a time. The small stack keeps the extraction, dispatch rules, and outbound calls easy to test in isolation.
 
-A link to your Git repository, with your code (runnable with `npm install && npm start`, or tell us
-what else it needs) and a `README` covering:
+1. **Read the email.** Claude proposes structured changes. The service checks the sender against the simulator config, then validates the target, drug, exact dose, applicable dates and routing scope. Pharmacy contacts can update their own fulfillment facts. Ops can prefer or exclude a pharmacy for a stated scope. An Ops preference cannot grant fulfillment eligibility.
+2. **Apply changes on the simulated clock.** The order or email timestamp drives the clock. Daily capacity resets at US Eastern midnight. Newer applicable facts override older ones, and an expired override exposes the previous applicable fact. For day-only wording, “until Wednesday” ends at the start of Wednesday. “The rest of the week” ends at the start of Monday. For supported midnight windows the code resolves the bounds from the Eastern receipt date and checks them against the model output.
+3. **Pick an eligible destination.** Check that the pharmacy is open, serves the state, has the exact dose and has capacity. Apply Ops exclusions and then eligible preferences. If preferences overlap, the narrower one wins, with the more recent instruction breaking equal-scope ties. Otherwise use shipping time, then price, then pharmacy ID as a stable tie-breaker. Use `MANUAL` when no candidate remains.
+4. **Record the outcome.** A repeated webhook or already-sent order does not consume capacity again. If the pharmacy API's response is uncertain, retain the reservation and only retry the same destination while it is still eligible on the same Eastern day. A rejected email goes on Sam's list. A closure that can be verified independently still takes effect. If extraction is unavailable, hold that pharmacy, or all pharmacies for an unreadable Ops email, for the rest of that replay.
 
-- what you built and how to run it
-- which stack you chose, and why
-- why you're confident it works
-- how you decide where an order goes, and what you do when the goals conflict
-- what you chose not to do, and why
-- which rules you found ambiguous, and what you decided
-- anything you know is wrong or untested
-- what you'd change before running this in production
-- how you used AI, and one place where you didn't accept what it gave you
+## Verification and limits
 
-We may follow up with some questions about your solution.
+`npm test` needs no API key. It runs the unchanged Week A simulator against the service with a local test double for Claude. All **52 deliveries** were acknowledged and all **38 orders** matched independently specified destinations, including five sent to `MANUAL`. Two invalid emails went to Sam's list. Additional tests cover Eastern midnight and DST, stock corrections, overbroad Ops rules, delivery retries, and a model outage.
+
+The hosted Claude model and the evaluator's unseen week are untested in this rebuild. Source checks cover common language and time patterns. Complex scopes or ambiguous notices can be sent for review, and some less common facts still depend on the quality of the extraction. A run stores routing state and deduplication records in memory. I stopped after the core and the regression tests.
+
+Before production I would authenticate the webhook and sender identities, persist accepted events, rule changes and dispatch reservations transactionally, and provide an operator workflow for review and reconciling an uncertain pharmacy API result. I would also measure the hosted model's extraction quality on labeled, representative mail before trusting new patterns.
+
+## AI use
+
+I used Codex and its agents to implement, test, and review the rebuild. The first webhook draft retried an uncertain send against the original reservation. Review showed that the pharmacy might have closed since that attempt. I added an eligibility check before redelivery and a regression that verifies no second pharmacy request is made after a closure.
