@@ -46,21 +46,28 @@ function baseline(pharmacy: Pharmacy, request: Prescription): Fulfillment {
   };
 }
 
-function applyFact(facts: Fulfillment, rule: Exclude<Rule, { kind: "routing" }>, request: Prescription): void {
+function matchesStock(rule: Extract<Rule, { kind: "stock" }>, request: Prescription): boolean {
+  return normalizeMedication(rule.medication) === request.medication && normalizeDose(rule.dose) === request.dose;
+}
+
+function applyFact(
+  facts: Fulfillment,
+  rule: Exclude<Rule, { kind: "routing" }>,
+  request: Prescription,
+  restriction: Change["restriction"],
+): void {
   switch (rule.kind) {
     case "open":
       facts.open = rule.value;
       break;
     case "stock":
-      if (normalizeMedication(rule.medication) === request.medication && normalizeDose(rule.dose) === request.dose) {
-        facts.inStock = rule.available;
-      }
+      if (matchesStock(rule, request)) facts.inStock = rule.available;
       break;
     case "shipping":
       if (normalizeState(rule.state) === request.state) facts.shipsToState = rule.allowed;
       break;
     case "capacity":
-      facts.capacity = rule.value;
+      facts.capacity = restriction === "capacity-ceiling" ? Math.min(facts.capacity, rule.value) : rule.value;
       break;
     case "speed":
       facts.days = rankValue(rule.value);
@@ -89,14 +96,15 @@ function matchingScope(scope: Scope, request: Prescription): string[] | null {
 }
 
 export class DispatchPlanner {
-  private readonly changes: { change: Change; receivedAt: number }[] = [];
+  private changes: { change: Change; receivedAt: number; receiptOrder: number }[] = [];
   private readonly dailyReservations = new Map<string, Map<string, number>>();
 
   constructor(private readonly config: Config) {}
 
-  add(changes: readonly Change[], receivedAt = 0): void {
-    for (const change of changes) this.changes.push({ change, receivedAt });
-    this.changes.sort((a, b) => a.receivedAt - b.receivedAt);
+  add(changes: readonly Change[], receivedAt = 0, receiptOrder = 0): void {
+    if (receiptOrder > 0) this.changes = this.changes.filter((entry) => entry.receiptOrder !== receiptOrder);
+    for (const change of changes) this.changes.push({ change, receivedAt, receiptOrder });
+    this.changes.sort((a, b) => a.receivedAt - b.receivedAt || a.receiptOrder - b.receiptOrder);
   }
 
   private evaluate(order: Order, at: number, held?: ReadonlySet<string>, reserved?: string) {
@@ -113,14 +121,26 @@ export class DispatchPlanner {
       .map((pharmacy) => [pharmacy.id, baseline(pharmacy, request)]));
     const blocks = new Map<string, Set<string>>();
     const preferences = new Map<string, Map<string, Preference>>();
+    const confirmedStock = new Map<string, { revision: number; receiptOrder: number }>();
+    for (const [revision, { change, receiptOrder }] of this.changes.entries()) {
+      const { pharmacyId, from, rule, restriction } = change;
+      if (from <= at && rule.kind === "stock" && !restriction && matchesStock(rule, request)) {
+        confirmedStock.set(pharmacyId, { revision, receiptOrder });
+      }
+    }
 
     // Active overlays are applied in receipt order so corrections override
     // earlier facts. Temporary overlays expire at their exclusive end time.
-    for (const [revision, { change: { pharmacyId, from, until, rule } }] of this.changes.entries()) {
+    for (const [revision, { change: { pharmacyId, from, until, rule, restriction }, receiptOrder }] of this.changes.entries()) {
       if (from > at || (until !== null && at >= until)) continue;
       if (rule.kind !== "routing") {
+        // A later confirmation resolves the earlier uncertainty even after a
+        // temporary stock correction expires.
+        const confirmation = confirmedStock.get(pharmacyId);
+        if (restriction === "uncertain-stock" && confirmation && confirmation.revision > revision
+          && (!receiptOrder || receiptOrder !== confirmation.receiptOrder)) continue;
         const pharmacy = facts.get(pharmacyId);
-        if (pharmacy) applyFact(pharmacy, rule, request);
+        if (pharmacy) applyFact(pharmacy, rule, request, restriction);
         continue;
       }
       const qualifiers = matchingScope(rule.scope, request);

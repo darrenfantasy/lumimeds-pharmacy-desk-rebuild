@@ -67,6 +67,7 @@ export interface Change {
   from: number;
   until: number | null;
   rule: Rule;
+  restriction?: "uncertain-stock" | "capacity-ceiling";
 }
 
 const states = {

@@ -126,3 +126,31 @@ test("an older change redelivered late cannot override a newer correction", () =
   assert.equal(desk.select(order, morning).pharmacy, "primary");
   assert.equal(desk.select(order, correction).pharmacy, "backup");
 });
+
+test("only a later confirmation for the disputed dose resolves an inventory hold", () => {
+  const desk = planner(pharmacy("primary"), pharmacy("backup", { shipsInDays: 3 }));
+  const nextDay = Date.parse("2026-11-10T00:00:00-05:00");
+  const restoration = Date.parse("2026-11-11T00:00:00-05:00");
+  const change = (dose, from, until, available) => ({
+    pharmacyId: "primary", from, until, rule: { kind: "stock", medication: "tirzepatide", dose, available },
+  });
+  desk.add([{ ...change("5mg", morning, null, false), restriction: "uncertain-stock" }], morning, 1);
+  desk.add([change("7.5mg", morning, null, true)], morning + 1, 2);
+  assert.equal(desk.select(order, morning + 1).pharmacy, "backup");
+  assert.equal(desk.select({ ...order, dose: "7.5mg" }, morning + 1).pharmacy, "primary");
+
+  desk.add([change("5mg", nextDay, restoration, false)], morning + 2, 3);
+  assert.equal(desk.select(order, nextDay - 1).pharmacy, "backup");
+  assert.equal(desk.select(order, restoration - 1).pharmacy, "backup");
+  assert.equal(desk.select(order, restoration).pharmacy, "primary");
+});
+
+test("an independently verified capacity ceiling never raises existing capacity", () => {
+  const desk = planner(pharmacy("primary", { dailyCapacity: 1 }), pharmacy("backup", { shipsInDays: 3 }));
+  desk.reserve("primary", morning);
+  const capacity = { pharmacyId: "primary", from: morning, until: null, rule: { kind: "capacity", value: 5 } };
+  desk.add([{ ...capacity, restriction: "capacity-ceiling" }], morning, 1);
+  assert.equal(desk.select(order, morning).pharmacy, "backup");
+  desk.add([capacity], morning, 1);
+  assert.equal(desk.select(order, morning).pharmacy, "primary");
+});
