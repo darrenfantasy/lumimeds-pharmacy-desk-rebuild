@@ -7,7 +7,8 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --check sim/sim.mjs && node --test test/*.test.mjs"
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build --silent && node --check sim/sim.mjs && node --test test/*.test.mjs"
   },
   "devDependencies": {
     "@types/node": "^18.19.0",
