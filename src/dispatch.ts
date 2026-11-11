@@ -89,24 +89,23 @@ function matchingScope(scope: Scope, request: Prescription): string[] | null {
 }
 
 export class DispatchPlanner {
-  private readonly changes: Change[] = [];
+  private readonly changes: { change: Change; receivedAt: number }[] = [];
   private readonly dailyReservations = new Map<string, Map<string, number>>();
 
   constructor(private readonly config: Config) {}
 
-  add(changes: readonly Change[]): void {
-    this.changes.push(...changes);
+  add(changes: readonly Change[], receivedAt = 0): void {
+    for (const change of changes) this.changes.push({ change, receivedAt });
+    this.changes.sort((a, b) => a.receivedAt - b.receivedAt);
   }
 
-  select(order: Order, at: number, held?: ReadonlySet<string>): { pharmacy: string; reason: string } {
+  private evaluate(order: Order, at: number, held?: ReadonlySet<string>, reserved?: string) {
     const state = normalizeState(order.state);
     const medication = normalizeMedication(order.medication);
     const dose = normalizeDose(order.dose);
     const knownDose = Object.entries(this.config.catalogue).some(([key, doses]) =>
       normalizeMedication(key) === medication && doses.some((entry) => normalizeDose(entry) === dose));
-    if (!state || !dose || !knownDose) {
-      return { pharmacy: "MANUAL", reason: "Unknown destination or catalogue dose" };
-    }
+    if (!state || !dose || !knownDose) return null;
 
     const request = { state, medication, dose };
     const facts = new Map(this.config.pharmacies
@@ -117,7 +116,7 @@ export class DispatchPlanner {
 
     // Active overlays are applied in receipt order so corrections override
     // earlier facts. Temporary overlays expire at their exclusive end time.
-    for (const [revision, { pharmacyId, from, until, rule }] of this.changes.entries()) {
+    for (const [revision, { change: { pharmacyId, from, until, rule } }] of this.changes.entries()) {
       if (from > at || (until !== null && at >= until)) continue;
       if (rule.kind !== "routing") {
         const pharmacy = facts.get(pharmacyId);
@@ -154,8 +153,22 @@ export class DispatchPlanner {
     const used = this.dailyReservations.get(easternDate(at));
     const eligible = [...facts].filter(([id, fact]) =>
       fact.open && fact.inStock && fact.shipsToState
-      && Number.isSafeInteger(fact.capacity) && (used?.get(id) ?? 0) < fact.capacity
+      && Number.isSafeInteger(fact.capacity) && (used?.get(id) ?? 0) - (id === reserved ? 1 : 0) < fact.capacity
       && !blocks.get(id)?.size);
+    return { eligible, preferences };
+  }
+
+  canRetry(order: Order, pharmacy: string, at: number, reservedAt: number, held: ReadonlySet<string>): boolean {
+    if (pharmacy === "MANUAL") return true;
+    // An uncertain delivery still occupies capacity on the day it was attempted.
+    if (easternDate(at) !== easternDate(reservedAt)) return false;
+    return this.evaluate(order, at, held, pharmacy)?.eligible.some(([id]) => id === pharmacy) ?? false;
+  }
+
+  select(order: Order, at: number, held?: ReadonlySet<string>): { pharmacy: string; reason: string } {
+    const evaluation = this.evaluate(order, at, held);
+    if (!evaluation) return { pharmacy: "MANUAL", reason: "Unknown destination or catalogue dose" };
+    const { eligible, preferences } = evaluation;
     const eligibleIds = new Set(eligible.map(([id]) => id));
 
     const activePreferences = [...preferences.values()].flatMap((scope) => {

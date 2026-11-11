@@ -113,3 +113,16 @@ test("exact-scope clears preserve other active rules and restore prior preferenc
   desk.add([rule("temporary", "clear-prefer", scope)]);
   assert.equal(desk.select(order, morning).pharmacy, "general");
 });
+
+test("an older change redelivered late cannot override a newer correction", () => {
+  const desk = planner(pharmacy("primary"), pharmacy("backup", { shipsInDays: 3 }));
+  const correction = morning + 3_600_000;
+  const change = (from, value) => ({
+    pharmacyId: "primary", from, until: null, rule: { kind: "open", value },
+  });
+  desk.add([change(correction, false)], correction);
+  desk.add([change(morning, true)], morning);
+
+  assert.equal(desk.select(order, morning).pharmacy, "primary");
+  assert.equal(desk.select(order, correction).pharmacy, "backup");
+});

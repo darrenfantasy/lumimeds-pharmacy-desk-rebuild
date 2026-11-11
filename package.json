@@ -8,10 +8,14 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build --silent && node --check sim/sim.mjs && node --test test/*.test.mjs"
+    "test": "npm run build --silent && node --check sim/sim.mjs && node --test test/*.test.mjs",
+    "start": "npm run build --silent && node dist/server.js"
   },
   "devDependencies": {
     "@types/node": "^18.19.0",
     "typescript": "~5.9.3"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1"
   }
 }
