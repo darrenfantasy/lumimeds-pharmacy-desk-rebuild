@@ -1,0 +1,16 @@
+{
+  "name": "lumimeds-pharmacy-desk",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --check sim/sim.mjs && node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^18.19.0",
+    "typescript": "~5.9.3"
+  }
+}
